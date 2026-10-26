@@ -1,0 +1,6 @@
+pending.md
+__pycache__/
+*.pyc
+_site/
+_build/
+data/

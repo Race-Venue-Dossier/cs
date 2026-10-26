@@ -1,0 +1,125 @@
+name: Daily Dropbox update
+
+on:
+  schedule:
+    - cron: '17 4 * * *'        # every day 05:17 Swiss winter time (06:17 summer time)
+  workflow_dispatch:             # "Run workflow" button in the Actions tab
+  push:                          # publishes the committed (already encrypted) index.html
+    branches: [main]
+    paths: ['index.html', '.github/workflows/**']
+
+permissions:
+  contents: write
+  issues: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: course-setting-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: build/requirements.txt
+
+      - name: Install
+        if: github.event_name != 'push'
+        run: |
+          pip install -r build/requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Open encrypted data (data.enc -> data/)
+        if: github.event_name != 'push'
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: python build/vault.py unlock
+
+      - name: Check Dropbox folder
+        id: sync
+        if: github.event_name != 'push'
+        run: python build/sync_dropbox.py
+
+      - name: Build page
+        if: github.event_name != 'push'
+        run: python build/build_page.py
+
+      - name: Test page (stops here on any problem - the published page stays as it is)
+        if: github.event_name != 'push'
+        run: python build/check_page.py
+
+      - name: Encrypt page with the password (secret PAGE_PASSWORD)
+        if: github.event_name != 'push'
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: python build/encrypt.py
+
+      - name: Test encrypted page (wrong password rejected, right one opens everything)
+        if: github.event_name != 'push'
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: python build/check_page.py --encrypted
+
+      - name: Save data and page (data only encrypted)
+        if: github.event_name != 'push'
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: |
+          python build/vault.py lock
+          git config user.name "course-setting bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data.enc index.html
+          if git diff --cached --quiet; then echo "nothing new"; else
+            git commit -m "Dropbox check $(date -u +%F): ${{ steps.sync.outputs.added || 0 }} added, ${{ steps.sync.outputs.pending || 0 }} under review"
+            git push
+          fi
+
+      - name: Nothing readable may be published or committed
+        run: |
+          grep -q 'id="pw"' index.html && ! grep -q '__KS' index.html || { echo "index.html is not password protected - not publishing"; exit 1; }
+          if git ls-files | grep -q '^data/'; then echo "plain data/ is in the repository - stopping"; exit 1; fi
+
+      - name: Issue for files under review
+        if: github.event_name != 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PENDING: ${{ steps.sync.outputs.pending }}
+        run: |
+          TITLE="Dropbox files under review"
+          NUM=$(gh issue list --state open --search "\"$TITLE\" in:title" --json number --jq '.[0].number // empty')
+          if [ "${PENDING:-0}" -gt 0 ]; then
+            if [ -n "$NUM" ]; then gh issue edit "$NUM" --body-file pending.md
+            else gh issue create --title "$TITLE" --body-file pending.md; fi
+          elif [ -n "$NUM" ]; then
+            gh issue close "$NUM" --comment "All files processed."
+          fi
+
+      - name: Pages source
+        id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "type=$(gh api repos/${{ github.repository }}/pages --jq .build_type 2>/dev/null || echo none)" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare site
+        if: steps.pages.outputs.type == 'workflow'
+        run: mkdir -p _site && cp index.html _site/ && touch _site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.pages.outputs.type == 'workflow'
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        if: steps.pages.outputs.type == 'workflow'
+        uses: actions/deploy-pages@v4
