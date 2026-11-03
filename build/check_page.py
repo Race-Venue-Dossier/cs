@@ -16,7 +16,7 @@ if ENC and not PW: sys.exit('PAGE_PASSWORD not set')
 with sync_playwright() as p:
     br = p.chromium.launch()
     for vw in (1400, 390):
-        pg = br.new_page(viewport={'width': vw, 'height': 900})
+        ctx = br.new_context(viewport={'width': vw, 'height': 900}); pg = ctx.new_page()
         pg.on('pageerror', lambda e: errors.append('%dpx: %s' % (vw, e)))
         pg.on('console', lambda m: m.type == 'error' and errors.append('%dpx console: %s' % (vw, m.text)))
         pg.goto('file://' + os.path.join(ROOT, PAGE)); pg.wait_for_timeout(600)
@@ -29,6 +29,14 @@ with sync_playwright() as p:
                 problems.append('%dpx: wrong password not rejected' % vw)
             pg.fill('#pw', PW); pg.click('#go')
             pg.wait_for_function('()=>window.__KS', timeout=30000); pg.wait_for_timeout(600)
+            if pg.evaluate("()=>!!document.getElementById('f') || getComputedStyle(document.body).display==='grid'"):
+                problems.append('%dpx: login screen still on the page after sign-in' % vw)
+            # second visit: automatic sign-in with the remembered key must replace the login screen as well
+            pg2 = ctx.new_page(); pg2.goto('file://' + os.path.join(ROOT, PAGE))
+            pg2.wait_for_function('()=>window.__KS', timeout=30000); pg2.wait_for_timeout(600)
+            if pg2.evaluate("()=>!!document.getElementById('f') || getComputedStyle(document.body).display==='grid'"):
+                problems.append('%dpx: login screen still on the page after automatic sign-in' % vw)
+            pg2.close()
         tabs = pg.eval_on_selector_all('.tabs .tab', 'b=>b.map(x=>x.dataset.tab||x.getAttribute("data-t")||x.textContent.trim())')
         n_tabs = pg.eval_on_selector_all('.tabs .tab', 'b=>b.length')
         for d in ('SL', 'GS'):
@@ -42,7 +50,7 @@ with sync_playwright() as p:
         if vw == 390:
             over = pg.evaluate('()=>document.documentElement.scrollWidth-window.innerWidth')
             if over > 2: problems.append('390px: page scrolls sideways by %dpx' % over)
-        pg.close()
+        ctx.close()
     br.close()
 for e in errors: print('ERROR', e)
 for q in problems: print('PROBLEM', q)

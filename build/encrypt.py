@@ -78,7 +78,12 @@ function open_(raw){
     .then(function(k){return crypto.subtle.decrypt({name:'AES-GCM',iv:u8(E.i)},k,u8(E.c))})
     .then(function(pt){return new TextDecoder().decode(pt)});
 }
-function show(h){document.open();document.write(h);document.close()}
+function show(h){
+  // replace the login page only once it has finished loading: document.open() while the login page is still
+  // loading (fast automatic sign-in) would append the page to the login form instead of replacing it
+  var go=function(){setTimeout(function(){document.open();document.write(h);document.close()},0)};
+  if(document.readyState==='complete')go();else window.addEventListener('load',go,{once:true});
+}
 function derive(pw){
   return crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits'])
     .then(function(k){return crypto.subtle.deriveBits({name:'PBKDF2',salt:u8(E.s),iterations:E.n,hash:'SHA-256'},k,256)});
