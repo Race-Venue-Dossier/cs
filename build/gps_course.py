@@ -1,7 +1,9 @@
 """GPS course-setting sheets -> course gates, taken over unchanged from the workshop (sl_build.py / gs_build.py):
 merge points measured twice (< 2.5 m), rebuild angles > 90 deg from offset, replace implausible pitches by their
 neighbours, convert angle and offset from slope to plan view (as in the surveyed race documents), infer figure types
-from the distances (SL: delay / hairpin / vertical combination; GS: delay only)."""
+from the distances (SL: delay / hairpin / vertical combination; GS: delay only).
+One addition (Nov 2026): a gate whose turn comes from a merged double point is flagged (fl 32) and, like a gate
+with a missing angle or offset (fl 1/2), never counts as a regular open gate."""
 import math, statistics as st, collections
 RANGE = 0.20
 log = collections.defaultdict(list)
@@ -39,6 +41,7 @@ def gps_course(rows, dec, name, infer_types):
         a=nx['a']; o=nx['o']
         if a is None: a=0.0; fl|=1
         if o is None: o=0.0; fl|=2
+        if nx.get('mg'): fl|=32   # turn taken from a GPS double point (merged): not measurable
         if a>90:         # artefact of the sheet's angle formula (offset stays small): rebuild from offset and distances
             a2=solve_a(r['d'],nx['d'],o)
             log['angle>90'].append((name,k+1,a,o,None if a2 is None else round(a2,1)))

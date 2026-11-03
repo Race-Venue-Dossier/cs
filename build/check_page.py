@@ -52,6 +52,28 @@ with sync_playwright() as p:
             if over > 2: problems.append('390px: page scrolls sideways by %dpx' % over)
         ctx.close()
     br.close()
+if ENC:
+    # update notice: same version -> no notice; newer version online -> notice, "Refresh" reloads and the browser
+    # stays signed in (fixed salt)
+    import http.server, threading, functools, shutil, tempfile
+    tmp = tempfile.mkdtemp(); shutil.copy(os.path.join(ROOT, 'index.html'), tmp); shutil.copy(os.path.join(ROOT, 'version.json'), tmp)
+    class Quiet(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, *a): pass
+    srv = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Quiet, directory=tmp))
+    threading.Thread(target=srv.serve_forever, daemon=True).start(); url = 'http://127.0.0.1:%d/index.html' % srv.server_address[1]
+    with sync_playwright() as p:
+        br = p.chromium.launch(); ctx = br.new_context(); pg = ctx.new_page()
+        pg.goto(url); pg.fill('#pw', PW); pg.click('#go'); pg.wait_for_function('()=>window.__KS', timeout=30000)
+        pg.evaluate('()=>window.__ksCheckUpdate()'); pg.wait_for_timeout(800)
+        if pg.is_visible('#ksUpd'): problems.append('update notice shown although nothing changed')
+        open(os.path.join(tmp, 'version.json'), 'w').write('{"v": "newer"}')
+        pg.evaluate('()=>window.__ksCheckUpdate()'); pg.wait_for_timeout(800)
+        if not pg.is_visible('#ksUpd'): problems.append('update notice not shown for a newer version')
+        else:
+            pg.click('#ksUpdBtn'); pg.wait_for_timeout(500); pg.wait_for_function('()=>window.__KS', timeout=30000); pg.wait_for_timeout(600)
+            if pg.evaluate("()=>!!document.getElementById('f')"): problems.append('after "Refresh" the password was asked again')
+        br.close()
+    srv.shutdown()
 for e in errors: print('ERROR', e)
 for q in problems: print('PROBLEM', q)
 print('checked%s: SL %d, GS %d courses, %d tabs' % (' (encrypted, opened with password)' if ENC else '', want['SL'], want['GS'], n_tabs))

@@ -2,8 +2,8 @@
 build scripts did (sl_races.py / gs_races.py -> sl_build.py / gs_build.py).
 
 Rules kept from the original pipeline:
-- figures (hairpin, vertical combination, delay) and gates far outside the normal range never enter
-  the values of the regular open gates (see metrics(): only Open gates between Open gates, within
+- figures (hairpin, vertical combination, delay), gates far outside the normal range and gates whose angle or
+  offset is missing or not measurable (GPS double point) never enter the values of the regular open gates (see metrics(): only Open gates between Open gates, within
   +/-20 % of the median distance, count as regular)
 - GS: a pitch cell left blank in the survey (read as 0) is filled with the mean of its neighbours and flagged
 """
@@ -47,7 +47,7 @@ def metrics(c):
         return s[i] * (1 - f) + s[i + 1] * f if i + 1 < len(s) else s[i]
     med = quant(base, .5); lo, hi = med * (1 - RANGE), med * (1 + RANGE); reg = []
     for i, g in enumerate(G):
-        ok = (g['t'] == 'Open' and 0 < i < len(G) - 1 and G[i - 1]['t'] == 'Open' and G[i + 1]['t'] == 'Open'
+        ok = (g['t'] == 'Open' and not (g.get('fl', 0) & 35) and 0 < i < len(G) - 1 and G[i - 1]['t'] == 'Open' and G[i + 1]['t'] == 'Open'
               and lo <= g['d'] <= hi and lo <= G[i + 1]['d'] <= hi and (i <= 1 or lo <= G[i - 1]['d'] <= hi))
         if ok: reg.append(g)
     m['nreg'] = len(reg)

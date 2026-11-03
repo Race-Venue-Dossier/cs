@@ -5,9 +5,16 @@ with PBKDF2-SHA256 (600 000 rounds). The published index.html only holds the enc
 screen that decrypts it in the browser (WebCrypto). Without the password nothing of the content can be read,
 not even in the page source.
 
+The salt is fixed for this page, so the key a browser remembers ("stay signed in") stays valid across the daily
+updates (a fresh random IV per build keeps every encryption unique).
+
+Update notice: a version id (hash of the page without the time of the last Dropbox check) is put into the page and
+into version.json next to index.html. The opened page checks version.json every few minutes and when it becomes
+visible again; if a newer version is online it shows a small notice with a "Refresh" button (hard reload).
+
 Usage: PAGE_PASSWORD=... python build/encrypt.py [_build/page.html] [index.html]
 """
-import os, sys, re, json, base64, secrets
+import os, sys, re, json, base64, secrets, hashlib
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -22,7 +29,45 @@ if not pw:
     sys.exit('PAGE_PASSWORD is not set - refusing to publish the page without password protection')
 
 page = open(src, encoding='utf-8').read()
-salt = secrets.token_bytes(16); iv = secrets.token_bytes(12)
+version = hashlib.sha256(re.sub(r'Dropbox checked [0-9.: ]+', '', page).encode('utf-8')).hexdigest()[:16]
+UPDATE = '''<style>
+.ks-upd{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:9999;display:flex;align-items:center;gap:14px;
+  max-width:calc(100vw - 32px);background:var(--surface,#fff);color:var(--ink,#14181f);border:1px solid var(--line,#e6e9ee);border-radius:14px;padding:12px 12px 12px 16px;
+  box-shadow:0 8px 28px rgba(20,24,31,.18);font:600 13.5px var(--font,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif)}
+.ks-upd[hidden]{display:none}
+.ks-upd span{flex:1 1 auto;min-width:0}
+@media (max-width:560px){.ks-upd{left:16px;right:16px;transform:none;max-width:none}}
+.ks-upd button{flex:none;height:36px;border:0;border-radius:9px;background:var(--red,#DA291C);color:#fff;font-weight:700;font-size:13.5px;font-family:inherit;padding:0 16px;cursor:pointer}
+.ks-upd button:hover{background:var(--red-d,#B11E14)}
+@media print{.ks-upd{display:none!important}}
+</style>
+<div class="ks-upd" id="ksUpd" role="status" hidden><span>The page has been updated with new data.</span><button type="button" id="ksUpdBtn">Refresh</button></div>
+<script>
+(function(){
+  var V='__VERSION__',box=document.getElementById('ksUpd'),btn=document.getElementById('ksUpdBtn'),busy=false;
+  function check(){
+    if(busy||!box.hidden||location.protocol==='file:')return;
+    busy=true;
+    fetch('version.json?t='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.json():null}).then(function(j){
+      if(j&&j.v&&j.v!==V)box.hidden=false;
+    }).catch(function(){}).then(function(){busy=false});
+  }
+  btn.addEventListener('click',function(){
+    btn.disabled=true;btn.textContent='Refreshing…';
+    // hard refresh: fetch the page past the browser cache first, then reload
+    fetch(location.pathname,{cache:'reload'}).catch(function(){}).then(function(){location.reload()});
+  });
+  window.__ksCheckUpdate=check;
+  setTimeout(check,5000);setInterval(check,5*60*1000);
+  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')check()});
+})();
+</script>
+'''.replace('__VERSION__', version)
+assert page.count('</body>') == 1
+page = page.replace('</body>', UPDATE + '</body>')
+# fixed salt for this page (see above); derived from a constant so it is the same in every build
+salt = hashlib.sha256(b'Race-Venue-Dossier/cs course-setting page key v1').digest()[:16]
+iv = secrets.token_bytes(12)
 key = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=ITER).derive(pw.encode('utf-8'))
 ct = AESGCM(key).encrypt(iv, page.encode('utf-8'), None)
 b64 = lambda b: base64.b64encode(b).decode()
@@ -70,7 +115,7 @@ button:hover{background:var(--red-d)}button:disabled{opacity:.6;cursor:default}
   <div class="err" id="err" role="alert"></div>
 </form>
 <script>
-var E=__BLOB__,KEY='ks-key-'+E.s;
+var E=__BLOB__,KEY='ks-key-v1';
 function u8(b){var s=atob(b),a=new Uint8Array(s.length);for(var i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a}
 function b64(a){var s='';a=new Uint8Array(a);for(var i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);return btoa(s)}
 function open_(raw){
@@ -111,4 +156,6 @@ f.addEventListener('submit',function(ev){
 </html>
 '''.replace('__LOGO__', logo).replace('__BLOB__', blob)
 open(dst, 'w', encoding='utf-8').write(html)
+with open(os.path.join(os.path.dirname(dst), 'version.json'), 'w') as f:
+    json.dump({'v': version}, f); f.write('\n')
 print('encrypted page written: %s (%d kB)' % (os.path.relpath(dst, ROOT), len(html) // 1024))

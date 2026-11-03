@@ -38,7 +38,17 @@ The published page is encrypted (AES-256-GCM, key from the password via PBKDF2-S
 `build/encrypt.py`; the browser decrypts it after the password is entered ("stay signed in" keeps the derived key
 in that browser). The password is never in the repository: the daily run reads it from the Actions secret
 `PAGE_PASSWORD` (Settings → Secrets and variables → Actions). Without the secret the run stops before publishing.
-A push of `index.html` publishes the committed (already encrypted) file as it is.
+A push of `index.html` publishes the committed (already encrypted) file as it is. The salt is fixed for this page,
+so "stay signed in" survives the daily updates.
+
+**Update notice:** `encrypt.py` writes a version id (hash of the page without the time of the last check) into the page
+and into `version.json`. The open page checks `version.json` every 5 minutes and when the tab becomes visible again;
+when a newer version is online it shows "The page has been updated with new data" with a **Refresh** button (hard
+reload, the browser stays signed in).
+
+**Regular open gates:** open gate, neighbours open, distance of the gate and its neighbours within ±20 % of the course
+median, and angle and offset measured: a gate with a missing value (fl 1/2) or whose turn comes from a merged GPS
+double point (fl 32) is never regular (rule in `build/course.py` and in the page, `data/page/js/js_b.js`).
 
 ## Encrypted data
 
@@ -52,6 +62,7 @@ key from `PAGE_PASSWORD`). `data/` is in `.gitignore`. To work on the data local
 | Path | What |
 |---|---|
 | `index.html` | the published page, encrypted (English, self-contained, also works offline) |
+| `version.json` | version id of the published page (update notice) |
 | `data.enc` | everything below `data/`, encrypted |
 | `data/base/` | courses and method figures from the workshop (`Werkstatt.zip`), frozen |
 | `data/auto/` | courses added since the workshop (survey PDFs, GPS PDFs, reviewed screenshots) |

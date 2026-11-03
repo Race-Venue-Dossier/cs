@@ -214,8 +214,10 @@ def main():
 
     print('files in Dropbox: %d | baseline: %s | added: %d | new pending: %d | pending total: %d | removed: %d'
           % (len(seen), baseline, len(added), len(new_pending), len(pending), len(gone)))
-    for p in added: print('  + added   ', p)
-    for p in new_pending: print('  ? pending ', p, '-', man[p]['note'])
+    # file names only locally: the logs of GitHub Actions are public for a public repository
+    if not os.environ.get('GITHUB_ACTIONS'):
+        for p in added: print('  + added   ', p)
+        for p in new_pending: print('  ? pending ', p, '-', man[p]['note'])
     gh = os.environ.get('GITHUB_OUTPUT')
     if gh:
         with open(gh, 'a') as f:
