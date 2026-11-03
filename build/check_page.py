@@ -37,6 +37,17 @@ with sync_playwright() as p:
             if pg2.evaluate("()=>!!document.getElementById('f') || getComputedStyle(document.body).display==='grid'"):
                 problems.append('%dpx: login screen still on the page after automatic sign-in' % vw)
             pg2.close()
+        # chart tooltip: shown while hovering, gone after the pointer leaves the chart
+        bx = pg.evaluate("()=>{const s=document.querySelector('.chart svg');if(!s)return null;s.scrollIntoView({block:'center'});const r=s.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}")
+        if bx:
+            x, y, w, h = bx
+            pg.mouse.move(x + w / 2, y + h / 2, steps=5); pg.wait_for_timeout(250)
+            on = pg.evaluate("()=>{const t=document.querySelector('.tip');return !!t&&!t.hidden}")
+            pg.mouse.move(x + w / 2, max(1, y - 120), steps=8); pg.wait_for_timeout(250)
+            off = pg.evaluate("()=>{const t=document.querySelector('.tip');return !!t&&!t.hidden}")
+            if not on: problems.append('%dpx: no tooltip when hovering a chart' % vw)
+            if off: problems.append('%dpx: tooltip stays after the pointer left the chart' % vw)
+            pg.evaluate('()=>window.scrollTo(0,0)')
         tabs = pg.eval_on_selector_all('.tabs .tab', 'b=>b.map(x=>x.dataset.tab||x.getAttribute("data-t")||x.textContent.trim())')
         n_tabs = pg.eval_on_selector_all('.tabs .tab', 'b=>b.length')
         for d in ('SL', 'GS'):

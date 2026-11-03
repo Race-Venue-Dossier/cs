@@ -29,7 +29,6 @@ if not pw:
     sys.exit('PAGE_PASSWORD is not set - refusing to publish the page without password protection')
 
 page = open(src, encoding='utf-8').read()
-version = hashlib.sha256(re.sub(r'Dropbox checked [0-9.: ]+', '', page).encode('utf-8')).hexdigest()[:16]
 UPDATE = '''<style>
 .ks-upd{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:9999;display:flex;align-items:center;gap:14px;
   max-width:calc(100vw - 32px);background:var(--surface,#fff);color:var(--ink,#14181f);border:1px solid var(--line,#e6e9ee);border-radius:14px;padding:12px 12px 12px 16px;
@@ -62,9 +61,20 @@ UPDATE = '''<style>
   document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')check()});
 })();
 </script>
-'''.replace('__VERSION__', version)
+'''
+# Chrome sends no pointerleave inside a page that was put in after the login (it does send mouseleave):
+# every pointerleave handler of the page (chart tooltips, hover marks) also listens to mouseleave
+LEAVE = '''<script>(function(){var add=EventTarget.prototype.addEventListener;
+EventTarget.prototype.addEventListener=function(t,f,o){add.call(this,t,f,o);if(t==='pointerleave')add.call(this,'mouseleave',f,o)};})();</script>
+'''
+# version id: page content (without the time of the last check) plus the code added here, so a change of either
+# shows the update notice
+version = hashlib.sha256((re.sub(r'Dropbox checked [0-9.: ]+', '', page) + UPDATE + LEAVE).encode('utf-8')).hexdigest()[:16]
+UPDATE = UPDATE.replace('__VERSION__', version)
 assert page.count('</body>') == 1
 page = page.replace('</body>', UPDATE + '</body>')
+i = page.index('<script>')
+page = page[:i] + LEAVE + page[i:]
 # fixed salt for this page (see above); derived from a constant so it is the same in every build
 salt = hashlib.sha256(b'Race-Venue-Dossier/cs course-setting page key v1').digest()[:16]
 iv = secrets.token_bytes(12)
@@ -126,7 +136,19 @@ function open_(raw){
 function show(h){
   // replace the login page only once it has finished loading: document.open() while the login page is still
   // loading (fast automatic sign-in) would append the page to the login form instead of replacing it
-  var go=function(){setTimeout(function(){document.open();document.write(h);document.close()},0)};
+  // the page is put in as a fresh document tree (no document.write: in a document rewritten with
+  // document.write Chrome stops sending pointerleave, so chart tooltips stayed on screen)
+  var go=function(){setTimeout(function(){
+    var doc=new DOMParser().parseFromString(h,'text/html');
+    document.replaceChild(document.importNode(doc.documentElement,true),document.documentElement);
+    // imported scripts do not run: replace each by a new script element (inline scripts run at once, in order)
+    Array.prototype.forEach.call(document.querySelectorAll('script'),function(o){
+      var n=document.createElement('script');
+      for(var i=0;i<o.attributes.length;i++)n.setAttribute(o.attributes[i].name,o.attributes[i].value);
+      n.text=o.text;o.parentNode.replaceChild(n,o);
+    });
+    window.scrollTo(0,0);
+  },0)};
   if(document.readyState==='complete')go();else window.addEventListener('load',go,{once:true});
 }
 function derive(pw){
