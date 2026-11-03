@@ -191,7 +191,7 @@ def status_html():
         t=datetime.datetime.fromisoformat(v.replace('Z','+00:00'))
         return t.astimezone(datetime.timezone(datetime.timedelta(hours=1))).strftime('%d.%m.%Y %H:%M')
     parts=['Data: %d slalom and %d giant slalom courses'%(n['SL'],n['GS'])]
-    if auto: parts.append('%d added automatically from survey PDFs'%auto)
+    if auto: parts.append('%d added from Dropbox since the workshop'%auto)
     if ts(S_.get('checked')): parts.append('Dropbox checked %s'%ts(S_['checked']))
     pend=S_.get('pending',[])
     out='<style>.ks-status{max-width:1440px;margin:0 auto;padding:4px 24px 28px;font-size:11.5px;color:var(--muted);line-height:1.6}.ks-status details{margin-top:4px}.ks-status summary{cursor:pointer;color:var(--ink-2);font-weight:700}.ks-status ul{margin:4px 0 0;padding-left:18px}@media print{.ks-status{display:none}}</style>\n'

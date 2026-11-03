@@ -98,5 +98,8 @@ def from_pdf(path, name=None):
 
 
 def key(c):
-    """identity of a race run, used to avoid double entries"""
+    """identity of a course, used to avoid double entries: race run by date/run, training course by date, venue,
+    label and number of gates (the same export saved twice in Dropbox counts once)"""
+    if c['kind'] == 'T':
+        return ('T', c['date'], c['venue'], c.get('label', ''), len(c['gates']))
     return (c['kind'], c['date'], int(c['run']), bool(c.get('tc')))

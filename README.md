@@ -8,14 +8,22 @@ and updated every morning from the coach's shared Dropbox folder.
 `.github/workflows/update.yml` runs every day (and on demand via *Actions → Daily Dropbox update → Run workflow*).
 It first opens the encrypted data store (`data.enc` → `data/`, see below), then:
 
-1. `build/sync_dropbox.py` downloads the shared Dropbox folder and compares it with `data/manifest.json`.
+1. `build/sync_dropbox.py` downloads the shared Dropbox folders (`sources` in `data/config.json`: the coach's
+   "PAST SEASONS" folder and the "Training" folder of season 26/27, stored with the prefix `26-27 Training/`)
+   and compares them with `data/manifest.json`.
    - **Survey PDFs (MBCD)** of men's SL/GS races, named like `2026-01-11_Adelboden_WC_Men_SL_2Run.pdf`, are read
      automatically with the same rules as the original pipeline (figures and gates far outside the normal range
      never count as regular open gates) and stored in `data/auto/SL|GS/`. A race run that is already in the
      data set is skipped as `duplicate`.
-   - **GPS sheets / screenshots / Excel / other PDFs** are marked `pending`: the page lists them at the bottom as
+   - **PDF exports of the GPS course-setting analysis** (training courses from 26/27 on: header `Course: … · N Tore`
+     or `· N Portes`, text layer) are read automatically by `build/gps_pdf.py` with the conversion the workshop
+     used for the GPS sheets (`build/gps_course.py`: merge double points, angle > 90° rebuilt from offset, pitch
+     glitches replaced, slope -> plan view, figure types from distances). Venue from title / file / folder name.
+   - Timing lists (PDF with text, no course table) are `ignored`.
+   - **Screenshots / Excel / scanned PDFs** are marked `pending`: the page lists them at the bottom as
      "under review"; the issue *Dropbox files under review* only gives the number. They need the OCR + visual check
-     done in a working session; afterwards set their status in `data/manifest.json` to `reviewed`.
+     done in a working session (the 26/27 screenshots were done that way on 3 Nov 2026: tables in `data/reviewed/`,
+     courses in `data/auto/`); afterwards their status in `data/manifest.json` is `reviewed`.
    - Women's races, videos and other files are `ignored`.
 2. `build/build_page.py` builds the page (`_build/page.html`) from `data/base/` (the data set from the workshop, including all
    manual corrections), `data/auto/` and `data/status.json`.
@@ -46,7 +54,8 @@ key from `PAGE_PASSWORD`). `data/` is in `.gitignore`. To work on the data local
 | `index.html` | the published page, encrypted (English, self-contained, also works offline) |
 | `data.enc` | everything below `data/`, encrypted |
 | `data/base/` | courses and method figures from the workshop (`Werkstatt.zip`), frozen |
-| `data/auto/` | courses added automatically from new survey PDFs |
+| `data/auto/` | courses added since the workshop (survey PDFs, GPS PDFs, reviewed screenshots) |
+| `data/reviewed/` | tables read from screenshots after the visual check |
 | `data/manifest.json` | every Dropbox file with checksum and status (`baseline`, `added`, `duplicate`, `pending`, `reviewed`, `ignored`, `removed`) |
 | `data/status.json` | last check and files under review (shown on the page) |
 | `data/page/` | page template, page modules (`js/`) and English texts (`i18n_all_en.py`) – encrypted, they name training venues and dates |

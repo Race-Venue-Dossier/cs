@@ -19,17 +19,25 @@ Usage: python build/sync_dropbox.py [--zip local.zip] [--baseline]
 Writes data/manifest.json, data/status.json, data/auto/**; prints a summary and, on GitHub,
 sets the step outputs `changed`, `pending` and `added`.
 """
-import os, sys, io, json, hashlib, zipfile, datetime, unicodedata, tempfile, argparse, urllib.request, traceback
+import os, re, sys, io, json, hashlib, zipfile, datetime, unicodedata, tempfile, argparse, urllib.request, traceback
 
 B = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(B); DATA = os.path.join(ROOT, 'data')
 sys.path.insert(0, B)
-import course
+import course, gps_pdf
 
-def dropbox_url():
-    """shared link of the coach's folder: from DROPBOX_URL or data/config.json (inside the encrypted data store)"""
-    u = os.environ.get('DROPBOX_URL') or load(os.path.join(DATA, 'config.json'), {}).get('dropbox_url')
-    if not u: raise SystemExit('no Dropbox link: set DROPBOX_URL or dropbox_url in data/config.json')
-    return u if 'dl=1' in u else u + ('&' if '?' in u else '?') + 'dl=1'
+def dl(u):
+    return u if 'dl=1' in u else re.sub(r'([?&])dl=0', r'\1dl=1', u) if 'dl=0' in u else u + ('&' if '?' in u else '?') + 'dl=1'
+
+
+def sources():
+    """shared Dropbox folders to check: data/config.json (inside the encrypted data store)
+    {"sources": [{"url": ..., "prefix": ""}, {"url": ..., "prefix": "26-27 Training/"}]}  (or DROPBOX_URL for one folder).
+    prefix: put in front of the file paths of that folder, so paths stay unique across folders."""
+    if os.environ.get('DROPBOX_URL'): return [{'url': dl(os.environ['DROPBOX_URL']), 'prefix': ''}]
+    cfg = load(os.path.join(DATA, 'config.json'), {})
+    S = cfg.get('sources') or ([{'url': cfg['dropbox_url'], 'prefix': ''}] if cfg.get('dropbox_url') else [])
+    if not S: raise SystemExit('no Dropbox link: set DROPBOX_URL or "sources" in data/config.json')
+    return [{'url': dl(x['url']), 'prefix': x.get('prefix', '')} for x in S]
 
 
 REVIEW_EXT = {'.jpg', '.jpeg', '.png', '.heic', '.xlsx', '.xls', '.xlsm', '.pdf', '.csv'}
@@ -64,10 +72,10 @@ def download(url):
     return blob
 
 
-def entries(zf):
+def entries(zf, prefix=''):
     for zi in zf.infolist():
         if zi.is_dir(): continue
-        p = unicodedata.normalize('NFC', zi.filename).lstrip('/')
+        p = prefix + unicodedata.normalize('NFC', zi.filename).lstrip('/')
         base = os.path.basename(p)
         if not base or base.lower() in SKIP_NAMES or base.startswith('._') or '__MACOSX' in p: continue
         yield p, zi
@@ -98,9 +106,18 @@ def newer_survey(path, newest):
     return bool(info) and sk(course.season(info['date'])) > sk(newest)
 
 
+def pdf_text(blob):
+    import pdfplumber
+    with tempfile.NamedTemporaryFile(suffix='.pdf') as t:
+        t.write(blob); t.flush()
+        with pdfplumber.open(t.name) as pdf:
+            return '\n'.join((p.extract_text() or '') for p in pdf.pages[:2])
+
+
 def classify(path, blob, keys):
     """-> (status, note, disc, course or None)"""
     ext = os.path.splitext(path)[1].lower()
+    if blob[:5] == b'%PDF-': ext = '.pdf'          # some exports come without file extension
     info = course.name_info(path) if ext == '.pdf' else None
     if info:
         if info['gen'] != 'M':
@@ -115,6 +132,24 @@ def classify(path, blob, keys):
         if course.key(c) in keys[disc]:
             return 'duplicate', 'race run already in the data set', disc, None
         return 'added', 'read automatically (%d gates, %d regular)' % (len(c['gates']), c['m']['nreg']), disc, c
+    if ext == '.pdf':
+        try:
+            text = pdf_text(blob)
+        except Exception as e:
+            return 'pending', 'PDF could not be opened: %s' % (str(e) or type(e).__name__)[:120], None, None
+        if gps_pdf.is_gps_pdf_text(text):
+            with tempfile.NamedTemporaryFile(suffix='.pdf') as t:
+                t.write(blob); t.flush()
+                try:
+                    disc, c = gps_pdf.from_pdf(t.name, path)
+                except Exception as e:
+                    return 'pending', 'GPS course-setting PDF could not be read automatically: %s' % (str(e) or type(e).__name__)[:140], None, None
+            if course.key(c) in keys[disc]:
+                return 'duplicate', 'training course already in the data set', disc, None
+            return 'added', 'GPS course setting read automatically (%d gates, %d regular)' % (len(c['gates']), c['m']['nreg']), disc, c
+        if len(text.strip()) > 40:
+            return 'ignored', 'timing list or other document (no course setting)', None, None
+        return 'pending', 'PDF without text layer (scan?): needs OCR / visual check in a session', None, None
     if ext in REVIEW_EXT:
         return 'pending', 'needs OCR / visual check in a session', None, None
     return 'ignored', 'not a course document', None, None
@@ -122,19 +157,25 @@ def classify(path, blob, keys):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--zip', help='use a local zip instead of downloading')
+    ap.add_argument('--zip', action='append', help='local zip instead of downloading; zip=prefix for a second folder (repeatable)')
     ap.add_argument('--baseline', action='store_true', help='record all current files as known, process nothing')
     a = ap.parse_args()
 
-    blob = open(a.zip, 'rb').read() if a.zip else download(dropbox_url())
-    zf = zipfile.ZipFile(io.BytesIO(blob))
+    if a.zip:   # --zip file.zip[=prefix], several allowed
+        src = [{'zip': z.split('=')[0], 'prefix': z.split('=')[1] if '=' in z else ''} for z in a.zip]
+    else:
+        src = sources()
+    zips = []
+    for x in src:
+        blob = open(x['zip'], 'rb').read() if 'zip' in x else download(x['url'])
+        zips.append((zipfile.ZipFile(io.BytesIO(blob)), x['prefix']))
     man_p = os.path.join(DATA, 'manifest.json'); st_p = os.path.join(DATA, 'status.json')
     man = load(man_p, {}); status = load(st_p, {})
     baseline = a.baseline or not man
     keys = existing_keys(); newest = newest_season()
     t = now(); added = []; new_pending = []; changed = False
     seen = set()
-    for path, zi in sorted(entries(zf)):
+    for zf, path, zi in sorted(((zf, p, zi) for zf, pre in zips for p, zi in entries(zf, pre)), key=lambda x: x[1]):
         seen.add(path)
         data = zf.read(zi); sha = hashlib.sha1(data).hexdigest()
         old = man.get(path)
@@ -151,14 +192,19 @@ def main():
         if old: note = 'changed in Dropbox; ' + note
         man[path] = {'sha': sha, 'status': stt, 'note': note, 'seen': t}
         if stt == 'added':
-            fn = os.path.join(DATA, 'auto', disc, os.path.splitext(os.path.basename(path))[0] + '.json')
+            stem = re.sub(r'[^\w.-]+', '_', os.path.splitext(os.path.basename(path))[0]).strip('_')
+            fn = os.path.join(DATA, 'auto', disc, '%s_%s_%s.json' % (c['date'], stem[:60], sha[:6]))
             c['dropbox'] = path
             save(fn, c); keys[disc].add(course.key(c))
             man[path]['course'] = os.path.relpath(fn, ROOT)
             added.append(path)
         elif stt == 'pending':
             new_pending.append(path)
-    gone = [p for p in man if p not in seen and man[p].get('status') != 'removed']
+    prefixes = {pre for _, pre in zips}
+    def folder(p):   # prefix of the shared folder a manifest path belongs to (longest match, '' = first folder)
+        return max((q for q in prefixes | {''} if p.startswith(q)), key=len)
+    # a file counts as removed only when its own folder was checked and no longer holds it
+    gone = [p for p in man if p not in seen and man[p].get('status') != 'removed' and folder(p) in prefixes]
     for p in gone:
         man[p]['status'] = 'removed'; changed = True
     pending = [{'path': p, 'note': v.get('note', ''), 'seen': v.get('seen')} for p, v in sorted(man.items()) if v['status'] == 'pending']
