@@ -179,7 +179,8 @@ def main():
         seen.add(path)
         data = zf.read(zi); sha = hashlib.sha1(data).hexdigest()
         old = man.get(path)
-        if old and old['sha'] == sha:
+        # unchanged file: skip, except a PDF still waiting for review (the reader may have been improved since)
+        if old and old['sha'] == sha and not (old.get('status') == 'pending' and data[:5] == b'%PDF-'):
             continue
         changed = True
         if baseline and not newer_survey(path, newest) and zi.date_time[:3] < BASE_SOURCES:
@@ -189,7 +190,7 @@ def main():
             stt, note, disc, c = classify(path, data, keys)
         except Exception:
             stt, note, disc, c = 'pending', 'error while reading: ' + traceback.format_exc().strip().splitlines()[-1][:160], None, None
-        if old: note = 'changed in Dropbox; ' + note
+        if old and old['sha'] != sha: note = 'changed in Dropbox; ' + note
         man[path] = {'sha': sha, 'status': stt, 'note': note, 'seen': t}
         if stt == 'added':
             stem = re.sub(r'[^\w.-]+', '_', os.path.splitext(os.path.basename(path))[0]).strip('_')

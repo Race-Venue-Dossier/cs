@@ -18,7 +18,7 @@ NUM = r'(-?\d+(?:\.\d+)?|–|-)'
 # a row: gate number + 5 values; the map legend is sometimes appended to a row ("Drehwinkel [°] Esri World Imagery")
 ROW = re.compile(r'^(\d+)\s+' + r'\s+'.join([NUM] * 5) + r'(?:\s.*)?$')
 HEAD = re.compile(r'^Course:\s*(.+?)\s*·\s*(\d+)\s*(Tore|Portes|Gates)\b', re.I)
-DATE = re.compile(r'·\s*(\d{2})\.(\d{2})\.(\d{4})\s*$')
+DATE = re.compile(r'·\s*(\d{1,2})\.(\d{1,2})\.(\d{4})\s*$')   # 28.10.2026 or 4.11.2026
 
 # venue names as used on the page (+ nation): data/page/venues.json, inside the encrypted data store (it names the
 # team's training venues). Unknown venues keep their name from the folder, nation left empty.
@@ -74,7 +74,7 @@ def from_pdf(path, rel):
     title, n_gates = hm.group(1), int(hm.group(2))
     dm = next((DATE.search(l) for l in lines[:3] if DATE.search(l)), None)
     assert dm, 'no date in the header'
-    date = '%s-%s-%s' % (dm.group(3), dm.group(2), dm.group(1))
+    date = '%s-%02d-%02d' % (dm.group(3), int(dm.group(2)), int(dm.group(1)))
     raw = []
     for l in lines:
         m = ROW.match(l)
