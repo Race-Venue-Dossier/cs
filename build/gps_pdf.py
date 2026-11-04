@@ -26,6 +26,24 @@ _V = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '
 VENUES = [tuple(v) for v in json.load(open(_V, encoding='utf-8'))] if os.path.exists(_V) else []
 
 
+TDATE = re.compile(r'(?<!\d)(\d{1,2})[._ ](\d{1,2})[._ ](\d{4}|\d{2})(?!\d)')
+
+
+def date_of(lines, title, fname):
+    """course date: '· 28.10.2026' at the end of the first header line; some exports have none
+    ('Saas fee sl 4.11.26'), then the date in the title or the file name (two-digit year = 20xx)"""
+    dm = next((DATE.search(l) for l in lines[:3] if DATE.search(l)), None)
+    if dm:
+        d, m, y = int(dm.group(1)), int(dm.group(2)), int(dm.group(3))
+    else:
+        tm = TDATE.search(title) or TDATE.search(fname)
+        if not tm: return None
+        d, m, y = int(tm.group(1)), int(tm.group(2)), int(tm.group(3))
+        if y < 100: y += 2000
+    if not (1 <= d <= 31 and 1 <= m <= 12 and 2015 <= y <= 2100): return None
+    return '%04d-%02d-%02d' % (y, m, d)
+
+
 def fnum(t):
     t = t.replace('−', '-')
     return None if t in ('–', '-') else float(t)
@@ -72,9 +90,8 @@ def from_pdf(path, rel):
     hm = next((HEAD.match(l) for l in lines[:6] if HEAD.match(l)), None)
     assert hm, 'not a GPS course-setting export'
     title, n_gates = hm.group(1), int(hm.group(2))
-    dm = next((DATE.search(l) for l in lines[:3] if DATE.search(l)), None)
-    assert dm, 'no date in the header'
-    date = '%s-%02d-%02d' % (dm.group(3), int(dm.group(2)), int(dm.group(1)))
+    date = date_of(lines, title, os.path.basename(rel))
+    assert date, 'no date in the header, title or file name'
     raw = []
     for l in lines:
         m = ROW.match(l)

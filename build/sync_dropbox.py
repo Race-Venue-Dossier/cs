@@ -37,7 +37,7 @@ def sources():
     cfg = load(os.path.join(DATA, 'config.json'), {})
     S = cfg.get('sources') or ([{'url': cfg['dropbox_url'], 'prefix': ''}] if cfg.get('dropbox_url') else [])
     if not S: raise SystemExit('no Dropbox link: set DROPBOX_URL or "sources" in data/config.json')
-    return [{'url': dl(x['url']), 'prefix': x.get('prefix', '')} for x in S]
+    return [{'url': dl(x['url']), 'prefix': x.get('prefix', ''), 'rename': x.get('rename', [])} for x in S]
 
 
 REVIEW_EXT = {'.jpg', '.jpeg', '.png', '.heic', '.xlsx', '.xls', '.xlsm', '.pdf', '.csv'}
@@ -72,10 +72,16 @@ def download(url):
     return blob
 
 
-def entries(zf, prefix=''):
+def entries(zf, prefix='', rename=()):
+    """rename: [[from, to], ...] applied to the start of each path, so files keep the paths they had when they
+    came from a narrower shared folder (e.g. 'PAST SEASONS/' -> '', 'Training/' -> '26-27 Training/')"""
     for zi in zf.infolist():
         if zi.is_dir(): continue
-        p = prefix + unicodedata.normalize('NFC', zi.filename).lstrip('/')
+        p = unicodedata.normalize('NFC', zi.filename).lstrip('/')
+        for a, b in rename:
+            if p.startswith(a):
+                p = b + p[len(a):]; break
+        p = prefix + p
         base = os.path.basename(p)
         if not base or base.lower() in SKIP_NAMES or base.startswith('._') or '__MACOSX' in p: continue
         yield p, zi
@@ -176,23 +182,32 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--zip', action='append', help='local zip instead of downloading; zip=prefix for a second folder (repeatable)')
     ap.add_argument('--baseline', action='store_true', help='record all current files as known, process nothing')
+    ap.add_argument('--rename', nargs=2, action='append', default=[], metavar=('FROM', 'TO'), help='path rename for --zip (repeatable)')
+    ap.add_argument('--max-new', type=int, default=int(os.environ.get('MAX_NEW', 60)),
+                    help='stop without saving when more files than this are new (a changed folder layout would make every file look new)')
     a = ap.parse_args()
 
     if a.zip:   # --zip file.zip[=prefix], several allowed
-        src = [{'zip': z.split('=')[0], 'prefix': z.split('=')[1] if '=' in z else ''} for z in a.zip]
+        src = [{'zip': z.split('=')[0], 'prefix': z.split('=')[1] if '=' in z else '', 'rename': a.rename} for z in a.zip]
     else:
         src = sources()
     zips = []
     for x in src:
         blob = open(x['zip'], 'rb').read() if 'zip' in x else download(x['url'])
-        zips.append((zipfile.ZipFile(io.BytesIO(blob)), x['prefix']))
+        zips.append((zipfile.ZipFile(io.BytesIO(blob)), x['prefix'], x.get('rename', [])))
     man_p = os.path.join(DATA, 'manifest.json'); st_p = os.path.join(DATA, 'status.json')
     man = load(man_p, {}); status = load(st_p, {})
     baseline = a.baseline or not man
     keys = existing_keys(); newest = newest_season()
     t = now(); added = []; new_pending = []; changed = False
     seen = set()
-    for zf, path, zi in sorted(((zf, p, zi) for zf, pre in zips for p, zi in entries(zf, pre)), key=lambda x: x[1]):
+    files = sorted(((zf, p, zi) for zf, pre, ren in zips for p, zi in entries(zf, pre, ren)), key=lambda x: x[1])
+    if man and not baseline:
+        new = [p for _, p, _ in files if p not in man]
+        if len(new) > a.max_new:
+            raise SystemExit('%d files look new (limit %d): has the Dropbox folder layout changed? Nothing saved. '
+                             'Check the paths, or run with --max-new to accept.' % (len(new), a.max_new))
+    for zf, path, zi in files:
         seen.add(path)
         data = zf.read(zi); sha = hashlib.sha1(data).hexdigest()
         old = man.get(path)
@@ -218,7 +233,7 @@ def main():
             added.append(path)
         elif stt == 'pending':
             new_pending.append(path)
-    prefixes = {pre for _, pre in zips}
+    prefixes = {pre for _, pre, _ in zips}
     def folder(p):   # prefix of the shared folder a manifest path belongs to (longest match, '' = first folder)
         return max((q for q in prefixes | {''} if p.startswith(q)), key=len)
     # a file counts as removed only when its own folder was checked and no longer holds it
