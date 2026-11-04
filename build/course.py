@@ -75,10 +75,28 @@ def from_pdf(path, name=None):
     with pdfplumber.open(path) as pdf:
         assert len(pdf.pages) >= 2, 'expected table page + plan page'
         G = ks_lib.parse_table(pdf.pages[0]); pl = ks_lib.parse_plan(pdf.pages[1])
+    # 26/27 layout: the finish row is sometimes labelled as a last open gate without offset and angle
+    # ('39 Open 10.38 10'); it is the finish when the plan shows one gate marker fewer than the table rows
+    fin_from_mark = False
+    if G and G[-1]['type'] == 'Open' and G[-1]['offset'] is None and G[-1]['angle'] is None:
+        gate_marks = [m for m in pl['marks'] if tuple(m[2]) != ks_lib.GREEN]
+        greens = [m for m in pl['marks'] if tuple(m[2]) == ks_lib.GREEN]
+        if len(gate_marks) == len(G) - 1 and len(greens) == 2:
+            G[-1]['type'] = 'Finish'
+        elif len(gate_marks) == len(G) and len(greens) == 1:
+            # the finish is drawn as a gate marker too: the lowest marker is the finish
+            low = max(gate_marks, key=lambda m: m[1])
+            pl['marks'] = [m if m is not low else (m[0], m[1], ks_lib.GREEN) for m in pl['marks']]
+            G[-1]['type'] = 'Finish'; fin_from_mark = True
     assert G and G[-1]['type'] == 'Finish', 'last table row is not the finish'
     ks_lib.VENUE.setdefault(info['venueRaw'], info['venueRaw'])
     ks_lib.NAT.setdefault(ks_lib.VENUE[info['venueRaw']], '')
     c = ks_lib.build(info, G, pl)
+    if fin_from_mark:   # check the finish found on the plan: plan length of the last segment must fit the table
+        import math
+        lg, f = c['gates'][-1], c['fin']
+        plan = math.hypot(f['x'] - lg['x'], f['y'] - lg['y']); exp = f['d'] * math.cos(math.atan((f['p'] or 0) / 100))
+        assert abs(plan - exp) <= 0.15 * exp, 'finish on the plan does not fit the table (%.1f m vs %.1f m)' % (plan, exp)
     assert c['disc'] == info['disc']
     gates = []
     for g in c['gates']:

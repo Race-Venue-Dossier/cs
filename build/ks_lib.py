@@ -4,6 +4,7 @@ TYPES = ('Open', 'Hairpin', 'V.Comb', 'Delayed', 'Finish', 'Start')
 
 def num(t):
     t = t.replace('−', '-')
+    if t.endswith('*') and t[:-1].isdigit(): t = t[:-1]   # gate number with a star (26/27 layout: '10*', '28*')
     try: return float(t)
     except ValueError: return None
 
