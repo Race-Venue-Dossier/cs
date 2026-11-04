@@ -155,6 +155,23 @@ def classify(path, blob, keys):
     return 'ignored', 'not a course document', None, None
 
 
+def apply_corrections(man):
+    """manual corrections confirmed by the coach (data/corrections.json, encrypted):
+    {"<Dropbox path>": {"date": "2026-11-05", "why": "..."}} - applied to the course read from that file, on every
+    check, so they survive a re-read of the file"""
+    cor = load(os.path.join(DATA, 'corrections.json'), {})
+    for path, fix in cor.items():
+        v = man.get(path)
+        if not v or not v.get('course') or not os.path.exists(os.path.join(ROOT, v['course'])): continue
+        fn = os.path.join(ROOT, v['course']); c = load(fn, None); changed = False
+        for k in ('date', 'label', 'venue', 'nat'):
+            if k in fix and c.get(k) != fix[k]:
+                c[k] = fix[k]; changed = True
+        if 'date' in fix: c['season'] = course.season(c['date'])
+        if changed:
+            save(fn, c); print('correction applied to', 'a course' if os.environ.get('GITHUB_ACTIONS') else path)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--zip', action='append', help='local zip instead of downloading; zip=prefix for a second folder (repeatable)')
@@ -211,6 +228,7 @@ def main():
     pending = [{'path': p, 'note': v.get('note', ''), 'seen': v.get('seen')} for p, v in sorted(man.items()) if v['status'] == 'pending']
     status.update({'checked': t, 'files': len(seen), 'pending': pending, 'source': 'dropbox shared folder'})
     if added: status['last_added'] = {'at': t, 'files': added}
+    apply_corrections(man)
     save(man_p, man); save(st_p, status)
 
     print('files in Dropbox: %d | baseline: %s | added: %d | new pending: %d | pending total: %d | removed: %d'
