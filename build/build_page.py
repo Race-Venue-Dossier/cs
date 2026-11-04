@@ -224,7 +224,59 @@ for k,L in data.items():
     for c in L:
         c=dict(c); c['lab']=T.DATA.get(c['lab'],c['lab']); c['pi']=T.DATA.get(c['pi'],c['pi']); den[k].append(c)
 en_page,en_full=finish(en,json.dumps(den,ensure_ascii=False,separators=(',',':')),'en')
-en_full=en_full.replace('</body>\n</html>\n',status_html()+'</body>\n</html>\n',1)
+# phone layout (up to 560 px): smaller type, one-line explanations with "More", one-line column titles with the
+# colour dot in front, first column kept in place when a wide table scrolls sideways
+MOBILE_CSS = """<style id="ks-mobile">
+@media (max-width:560px){
+  body{font-size:13px}
+  .page{padding-inline:12px}
+  .card{padding:12px 11px 13px;border-radius:14px}
+  .ch{margin-bottom:8px;gap:4px 10px}
+  .card h2{font-size:14.5px;line-height:1.3}
+  .ch p{font-size:11.5px;line-height:1.4;margin-top:2px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+  .ch p.open{display:block;-webkit-line-clamp:unset;overflow:visible}
+  .ks-more{border:0;background:none;padding:0;margin:0;font-family:inherit;font-size:11px;font-weight:700;line-height:1.3;color:var(--ink-2);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+  .tab{font-size:12px;padding:0 8px;min-height:36px}
+  .seg button{font-size:12px;padding:0 11px}
+  .lab{font-size:9px}
+  .kpi{padding:9px 10px}
+  .kpi .v{font-size:18px}
+  .kpi .v.name{font-size:14.5px}
+  .kpi .s{font-size:10px;line-height:1.35}
+  .tbl{font-size:12px}
+  .tbl th{font-size:9.5px;padding:7px 8px;letter-spacing:.03em}
+  .tbl td{padding:7px 8px}
+  .tw .tbl th:first-child,.tw .tbl td:first-child{position:sticky;left:0;background:var(--surface);box-shadow:inset -1px 0 0 var(--line)}
+  .tw .tbl th:first-child{z-index:3;background:var(--th)}
+  .tw .tbl td:first-child{z-index:2}
+  .tw .tbl tbody tr:hover td:first-child{background-color:var(--surface-2)}
+  .cq .tbl.cmpt th{white-space:nowrap;font-size:9.5px;line-height:1.2;vertical-align:middle;padding:7px 5px}
+  .cq .tbl.cmpt th .gd{display:inline-block;width:7px;height:7px;margin:0 3px 1px 0;vertical-align:middle}
+  .cq .tbl.cmpt td{padding:7px 5px}
+  .cq .tbl.cmpt td.l{white-space:normal;line-height:1.25}
+}
+</style>
+"""
+MOBILE_JS = """<script>(function(){
+  // phone: explanations are cut to one line; a "More" button opens the full text when it is longer
+  var mq=window.matchMedia('(max-width:560px)');
+  function prep(){
+    if(!mq.matches)return;
+    document.querySelectorAll('.ch p').forEach(function(p){
+      if(p.dataset.ksm)return; p.dataset.ksm='1';
+      if(p.scrollHeight<=p.clientHeight+2)return;
+      var b=document.createElement('button');b.type='button';b.className='ks-more';b.textContent='More';
+      b.addEventListener('click',function(e){e.stopPropagation();var o=p.classList.toggle('open');b.textContent=o?'Less':'More'});
+      p.insertAdjacentElement('afterend',b);
+    });
+  }
+  new MutationObserver(function(){prep()}).observe(document.body,{childList:true,subtree:true});
+  prep();
+})();</script>
+"""
+assert en_full.count('</head>') == 1
+en_full = en_full.replace('</head>', MOBILE_CSS + '</head>', 1)
+en_full=en_full.replace('</body>\n</html>\n',status_html()+MOBILE_JS+'</body>\n</html>\n',1)
 os.makedirs(ROOT+'/_build',exist_ok=True)
 open(ROOT+'/_build/page.html','w',encoding='utf-8').write(en_full)   # plain page; published only encrypted (build/encrypt.py)
 # leftovers: literals that still look German
