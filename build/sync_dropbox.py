@@ -63,10 +63,23 @@ def save(p, obj):
         json.dump(obj, f, ensure_ascii=False, indent=1, sort_keys=True); f.write('\n')
 
 
-def download(url):
-    req = urllib.request.Request(url, headers={'User-Agent': 'course-setting-sync'})
-    with urllib.request.urlopen(req, timeout=600) as r:
-        blob = r.read()
+def download(url, waits=(60, 180)):
+    """download the shared folder as zip; Dropbox sometimes answers with a short server error (500/502/503/429),
+    so the download is tried again after 1 and 3 minutes. The error message never contains the link."""
+    import time, urllib.error
+    for n in range(len(waits) + 1):
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'course-setting-sync'})
+            with urllib.request.urlopen(req, timeout=600) as r:
+                blob = r.read()
+            break
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            code = getattr(e, 'code', None)
+            retry = code is None or code in (429, 500, 502, 503, 504)
+            if not retry or n == len(waits):
+                raise SystemExit('Dropbox download failed (%s) after %d attempt(s)' % (code or type(e).__name__, n + 1))
+            print('Dropbox answered %s, trying again in %d s' % (code or type(e).__name__, waits[n]), flush=True)
+            time.sleep(waits[n])
     if not blob.startswith(b'PK'):
         raise SystemExit('Dropbox did not return a zip (link changed or folder no longer shared?)')
     return blob
