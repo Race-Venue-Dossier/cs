@@ -88,6 +88,18 @@ css_add='''.minis3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));ga
 @media (max-width:760px){.seg.disc{margin:0 0 0 auto;order:2}.bar-meta{order:3;margin-left:6px}.bar-meta .season{display:none}}
 @media (max-width:400px){.seg.disc button{padding:0 10px;font-size:12px}.brand span{display:none}}
 @media (prefers-reduced-motion:reduce){.fold-b svg{transition:none}}
+.card.spot{border-left:4px solid var(--red)}
+.spot-h{display:flex;justify-content:space-between;gap:12px;margin-bottom:10px}
+.spot-h h2{font-size:17px;margin:6px 0 2px}
+.spot-h p{font-size:12px;color:var(--muted);max-width:90ch;margin:0}
+.spot-badge{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#fff;background:var(--red);border-radius:999px;padding:3px 9px}
+.spot-t th.spot-run button{border:0;background:none;padding:0;font:inherit;color:var(--red);text-transform:inherit;letter-spacing:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.spot-t td b{font-weight:760}
+.spot-t .spot-d{color:var(--muted);font-size:10.5px;white-space:nowrap}
+.spot-t .spot-na{color:var(--muted);font-style:italic}
+.tbl tr.spot-row td{background:rgba(218,41,28,.07)}
+.tbl tr.spot-row td:first-child{box-shadow:inset 3px 0 0 var(--red)}
+.lbl.hi{fill:var(--red);font-weight:750}
 :root{--ca:#3a4350}
 :root[data-ks="dark"]{--ca:#e6ebf2}
 '''
@@ -129,12 +141,15 @@ new_lab="""  var boxes=[],lg=sv('g',null,svg);
         if(!best||cost<best.cost)best={cost:cost,x0:bx0,y0:by0,x1:bx1,y1:by1,ax:ax,ay:ay,far:ri>0};
       });
     });
-    if(best.cost>=100)return;   // no free spot: better no label than one on top of a dot
+    if(best.cost>=(p.hi?1000:100))return;   // no free spot: better no label than one on top of a dot (latest race: always labelled)
     boxes.push([best.x0,best.y0,best.x1,best.y1]);
     if(best.far)sv('line',{x1:px,y1:py,x2:Math.max(best.x0,Math.min(best.x1,px)),y2:Math.max(best.y0,Math.min(best.y1,py)),stroke:'var(--txt2)','stroke-width':1},lg);
-    sv('text',{x:best.x0+3,y:best.y0+th-3,class:'lbl'},lg,p.label);
+    sv('text',{x:best.x0+3,y:best.y0+th-3,class:p.hi?'lbl hi':'lbl'},lg,p.label);
   });"""
 page=rep(page,old_lab,new_lab)
+# ---- latest race: red ring on top of its dots, labelled first
+page=rep(page,"  // selective direct labels: extremes\n","  P.forEach(function(p){if(!p.hi)return;sv('circle',{cx:X(p.x),cy:Y(p.y),r:p.hollow?4.2:5,fill:p.hollow?'var(--surface)':p.color,stroke:p.hollow?p.color:'var(--surface)','stroke-width':2},svg);sv('circle',{cx:X(p.x),cy:Y(p.y),r:9.5,fill:'none',stroke:'var(--red)','stroke-width':2},svg)});\n  // selective direct labels: extremes\n")
+page=rep(page,"if(lab.indexOf(p)<0)lab.push(p)});","if(lab.indexOf(p)<0)lab.push(p)});\n  P.forEach(function(p){if(!p.hi)return;var i=lab.indexOf(p);if(i>=0)lab.splice(i,1);lab.unshift(p)});")
 TY={'Open':0,'Delayed':1,'Hairpin':2,'V.Comb':3}
 def num(v):
     v=round(v,2); return int(v) if v==int(v) else v
