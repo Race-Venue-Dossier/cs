@@ -63,6 +63,7 @@ key from `PAGE_PASSWORD`). `data/` is in `.gitignore`. To work on the data local
 |---|---|
 | `index.html` | the published page, encrypted (English, self-contained, also works offline) |
 | `version.json` | version id of the published page (update notice) |
+| `ref.json` | reference values of the men's race runs for the Gate-to-Gate tool (Ø / min / max over all race runs, key figures per run, gates by terrain zone); aggregated values only, written by `build/export_ref.py` in the daily run |
 | `data.enc` | everything below `data/`, encrypted |
 | `data/base/` | courses and method figures from the workshop (`Werkstatt.zip`), frozen |
 | `data/auto/` | courses added since the workshop (survey PDFs, GPS PDFs, reviewed screenshots) |

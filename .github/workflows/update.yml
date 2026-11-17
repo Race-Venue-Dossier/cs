@@ -59,6 +59,10 @@ jobs:
         if: github.event_name != 'push'
         run: python build/check_page.py
 
+      - name: Export reference values for Gate-to-Gate (ref.json, aggregated values only)
+        if: github.event_name != 'push'
+        run: python build/export_ref.py
+
       - name: Encrypt page with the password (secret PAGE_PASSWORD)
         if: github.event_name != 'push'
         env:
@@ -79,7 +83,7 @@ jobs:
           python build/vault.py lock
           git config user.name "course-setting bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data.enc index.html version.json
+          git add data.enc index.html version.json ref.json
           if git diff --cached --quiet; then echo "nothing new"; else
             git commit -m "Dropbox check $(date -u +%F): ${{ steps.sync.outputs.added || 0 }} added, ${{ steps.sync.outputs.pending || 0 }} under review"
             git push
@@ -89,6 +93,7 @@ jobs:
         run: |
           grep -q 'id="pw"' index.html && ! grep -q '__KS' index.html || { echo "index.html is not password protected - not publishing"; exit 1; }
           if git ls-files | grep -q '^data/'; then echo "plain data/ is in the repository - stopping"; exit 1; fi
+          if [ -f ref.json ] && grep -qE '"gates"|"plan"|"recon"|dropbox' ref.json; then echo "ref.json contains course or Dropbox data - stopping"; exit 1; fi
 
       - name: Issue for files under review
         if: github.event_name != 'push'
@@ -113,7 +118,7 @@ jobs:
 
       - name: Prepare site
         if: steps.pages.outputs.type == 'workflow'
-        run: mkdir -p _site && cp index.html version.json _site/ && touch _site/.nojekyll
+        run: mkdir -p _site && cp index.html version.json _site/ && (cp ref.json _site/ 2>/dev/null || true) && touch _site/.nojekyll
 
       - uses: actions/upload-pages-artifact@v3
         if: steps.pages.outputs.type == 'workflow'
