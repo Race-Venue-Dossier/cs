@@ -128,4 +128,15 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deploy
         if: steps.pages.outputs.type == 'workflow'
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      # GitHub sometimes does not find the artifact it just stored ("No artifacts named github-pages"):
+      # wait a minute and deploy again
+      - name: Wait before second deploy attempt
+        if: steps.pages.outputs.type == 'workflow' && steps.deploy.outcome == 'failure'
+        run: sleep 60
+
+      - name: Deploy to GitHub Pages (second attempt)
+        if: steps.pages.outputs.type == 'workflow' && steps.deploy.outcome == 'failure'
         uses: actions/deploy-pages@v4
