@@ -25,8 +25,22 @@ for d in ('SL', 'GS'):
     assert r['ref']['n'] >= 10 and len(r['runs']) == r['ref']['n'], (d, r['ref']['n'])
     assert all('gates' not in x for x in r['runs'])
     assert all(r['ref'][k] for k in ('dist', 'off', 'sd', 'comb', 'z0', 'z1', 'z2', 'z3')), d
+# common reference for all three tools (gender | discipline | race/training), see ref_sets.py. Never stops the daily run:
+# if anything goes wrong, ref.json is written as before (men's race runs only).
+train = ref.pop('tr', None) or {}
+try:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import ref_sets
+    sets = ref_sets.build(ref, train)
+    assert sets.get('M|SL|R') and sets['M|SL|R']['ref']['n'] == ref['disc']['SL']['ref']['n']
+    stxt = json.dumps(sets)
+    assert '"gates"' not in stxt and len(stxt) < 400_000
+    ref['v'] = 2; ref['sets'] = sets
+    ref['note'] += ' sets: common reference per gender|discipline|kind (R race runs, T training runs - aggregated only) from this page, the Race Venue Dossier and Gate-to-Gate, same rule for every run.'
+except Exception as e:
+    print('common reference not built (ref.json as before):', e)
 txt = json.dumps(ref, ensure_ascii=False, separators=(',', ':'))
-assert len(txt) < 200_000, len(txt)
+assert len(txt) < 600_000, len(txt)
 old = open(OUT, encoding='utf-8').read() if os.path.exists(OUT) else ''
 # the time stamp alone is no change: keep the file when the values are the same
 strip = lambda t: json.dumps({k: v for k, v in json.loads(t).items() if k != 'updated'}, sort_keys=True) if t else ''
